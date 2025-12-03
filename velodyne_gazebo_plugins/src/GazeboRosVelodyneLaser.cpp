@@ -35,6 +35,7 @@
 #include <velodyne_gazebo_plugins/GazeboRosVelodyneLaser.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <assert.h>
 
 #include <gazebo/physics/World.hh>
@@ -53,6 +54,7 @@
 #include <sensor_msgs/PointCloud2.h>
 
 #include <tf/tf.h>
+#include <omp.h>
 
 #if GAZEBO_GPU_RAY
 #define RaySensor GpuRaySensor
@@ -339,7 +341,9 @@ sensor_msgs::PointCloud2 GazeboRosVelodyneLaser::Getcloud(ConstLaserScanStampedP
   msg.data.resize(verticalRangeCount * rangeCount * POINT_STEP);
 
   int i, j;
-  uint8_t *ptr = msg.data.data();
+  std::size_t point_offset = 0;
+  uint8_t *data_ptr = msg.data.data();
+#pragma omp parallel for collapse(2) num_threads(6)
   for (i = 0; i < rangeCount; i++) {
     for (j = 0; j < verticalRangeCount; j++) {
 
@@ -355,7 +359,12 @@ sensor_msgs::PointCloud2 GazeboRosVelodyneLaser::Getcloud(ConstLaserScanStampedP
 
       // Noise
       if (gaussian_noise_ != 0.0) {
-        r += gaussianKernel(0,gaussian_noise_);
+        double noise = 0.0;
+#pragma omp critical(gaussian_noise_rng)
+        {
+          noise = gaussianKernel(0,gaussian_noise_);
+        }
+        r += noise;
       }
 
       // Get angles of ray to get xyz for point
@@ -376,6 +385,11 @@ sensor_msgs::PointCloud2 GazeboRosVelodyneLaser::Getcloud(ConstLaserScanStampedP
 
       // pAngle is rotated by yAngle:
       if ((MIN_RANGE < r) && (r < MAX_RANGE)) {
+        std::size_t offset = 0;
+#pragma omp atomic capture
+        { offset = point_offset; point_offset += POINT_STEP; }
+
+        uint8_t *ptr = data_ptr + offset;
         *((float*)(ptr + 0)) = r * cos(pAngle) * cos(yAngle);
         *((float*)(ptr + 4)) = r * cos(pAngle) * sin(yAngle);
 #if GAZEBO_MAJOR_VERSION > 2
@@ -389,14 +403,13 @@ sensor_msgs::PointCloud2 GazeboRosVelodyneLaser::Getcloud(ConstLaserScanStampedP
 #else
         *((uint16_t*)(ptr + 20)) = verticalRangeCount - 1 - j; // ring
 #endif
-        ptr += POINT_STEP;
       }
     }
   }
 
   // Populate message with number of valid points
   msg.point_step = POINT_STEP;
-  msg.row_step = ptr - msg.data.data();
+  msg.row_step = point_offset;
   msg.height = 1;
   msg.width = msg.row_step / POINT_STEP;
   msg.is_bigendian = false;
@@ -444,4 +457,3 @@ void GazeboRosVelodyneLaser::laserQueueThread()
 }
 
 } // namespace gazebo
-
