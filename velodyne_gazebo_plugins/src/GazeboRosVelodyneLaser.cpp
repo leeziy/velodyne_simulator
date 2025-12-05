@@ -186,6 +186,7 @@ void GazeboRosVelodyneLaser::Load(sensors::SensorPtr _parent, sdf::ElementPtr _s
         boost::bind(&GazeboRosVelodyneLaser::ConnectCb, this),
         boost::bind(&GazeboRosVelodyneLaser::ConnectCb, this),
         ros::VoidPtr(), &laser_queue_);
+    ao.latch = true;
     pub_ = nh_->advertise(ao);
   }
 
@@ -204,6 +205,7 @@ void GazeboRosVelodyneLaser::Load(sensors::SensorPtr _parent, sdf::ElementPtr _s
         boost::bind(&GazeboRosVelodyneLaser::ConnectCbStatic, this),
         boost::bind(&GazeboRosVelodyneLaser::ConnectCbStatic, this),
         ros::VoidPtr(), &laser_queue_);
+    ao.latch = true;
 
     pub_static_ = nh_->advertise(ao);
   }
